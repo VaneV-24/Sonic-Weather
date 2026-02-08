@@ -39,18 +39,32 @@ As the number of extreme events changes, event spikes create rhythmic bursts, gl
 ## How to Run
 ---
 Create a virtual environment
-python -m venv venv or python3 -m venv venv
-
+```
+python -m venv venv 
+```
+or 
+```
+python3 -m venv venv
+```
 Activate virtual environment
+```
 source venv/bin/activate (on Mac)
 venv\Scripts\activate (on Windows)
+```
 
 Install required packages
+```
 pip install -r requirements.txt
+```
 
 Run Program
-python sonicweather.py or python3 sonicweather.py
-
+```
+python sonicweather.py 
+```
+or 
+```
+python3 sonicweather.py
+```
 ---
 ## Limitations
 ---
