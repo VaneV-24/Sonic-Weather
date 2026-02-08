@@ -32,8 +32,17 @@ As sea ice extent decreases: spectra becomes darker, more noise added, lower fli
 As the number of extreme events changes, event spikes create rhythmic bursts, glitches, metric instability, and sudden modulations.
 
 ---
-## Control Distribution
+## Mapping Ranges
 ---
+All climate variables are first normalized to the range [0, 1] using min–max scaling across the full historical dataset, and these values are then mapped into bounded musical parameter spaces with explicit cutoffs to preserve musical coherence. 
+
+Normalized global temperature anomaly controls tonal center and register but is limited to a maximum span of twelve semitones and constrained to MIDI pitches 48–84, ensuring that long-term warming produces a gradual upward drift rather than uncontrolled registral extremes.
+
+Atmospheric CO₂ concentration governs harmonic density by scaling chord sizes from two to eight voices and limiting cluster probability to a maximum of sixty percent, preventing complete saturation while still allowing increasing textural pressure.
+
+Arctic sea-ice extent is inverted and mapped to timbral degradation through a low-pass filter cutoff bounded between approximately 12 kHz and 1.5 kHz, a noise-mix ceiling of forty percent, and moderate distortion thresholds so that spectral erosion remains audible but not overwhelming.
+
+Annual extreme-event counts regulate rhythmic disruption while preserving a 4/4 metric grid as the default, with probabilistic insertions of irregular subdivisions, brief metric shifts, and glitch-like bursts capped to avoid total metric collapse.
 
 ---
 ## How to Run
