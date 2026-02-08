@@ -1,0 +1,5 @@
+python-dotenv==1.1.1
+pandas==2.27.0
+numpy==2.27.0
+pretty_midi==0.2.9
+matplotlib==3.7.2
