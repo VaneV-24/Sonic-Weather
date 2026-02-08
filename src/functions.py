@@ -14,15 +14,15 @@ def standardizeColums(file, yearCol, valCol, newValName):
     return file
 
 def loadAllData(dataDir):
-    temp = pd.read_csv(dataDir / "temperature.csv")
-    co2 = pd.read_csv(dataDir / "co2.csv")
-    ice = pd.read_csv(dataDir / "nh_sea_ice_extent_annual.csv")
-    extreme = pd.read_csv(dataDir / "extreme_events.csv")
+    temp = pd.read_csv(dataDir + "/" + "temperature.csv")
+    co2 = pd.read_csv(dataDir + "/" + "co2.csv")
+    ice = pd.read_csv(dataDir + "/" + "nh_sea_ice_extent_annual.csv")
+    extreme = pd.read_csv(dataDir + "/" + "extreme_events.csv")
 
     tempStand = standardizeColums(temp, "Year", "Anomaly", "temp_anomaly")
-    co2Stand = standardizeColums(co2, "Year", "CO2", "co2_ppm")
-    iceStand = standardizeColums(ice, "Year", "Extent", "ice_extent")
-    extremeStand = standardizeColums(extreme, "Year", "Count", "extreme_count")
+    co2Stand = standardizeColums(co2, "Year", "CO2_Mean", "co2_ppm")
+    iceStand = standardizeColums(ice, "Year", "Ice_Extent", "ice_extent")
+    extremeStand = standardizeColums(extreme, "Year", "Extremes_Index", "extreme_count")
 
     dataFrame = tempStand.merge(co2Stand, on="year", how="outer")
     dataFrame = dataFrame.merge(iceStand, on="year", how="outer")
@@ -62,9 +62,11 @@ def preProcessData(dataFrame, smoothingWindow=5, clipQuantiles=(0.01, 0.99)):
 
             dataFrame[col] = dataFrame[col].clip(lowVal, highVal)
 
+    dataFrame[numericCols] = dataFrame[numericCols].bfill().ffill()
+
     return dataFrame.reset_index(drop=True)
 
-def normalizeData(dataFrame, cutoffQuantiles=(0.02, 0.98)):
+def normalizeData(dataFrame, cutoffQuantiles=(0.005, 0.995)):
     dataFrame = dataFrame.copy()
 
     climateCols = {
@@ -91,14 +93,76 @@ def normalizeData(dataFrame, cutoffQuantiles=(0.02, 0.98)):
 
     return dataFrame
 
-def harmony():
-    return
+def harmony(row):
+    baseScales = [[0, 2, 4, 7, 9],
+                  [0, 3, 5, 7, 10]]
+    scale = baseScales[0] if row["temp_n"] < 0.5 else baseScales[1]
 
-def rhythm():
-    return
+    # register mapping: MIDI 48-72
+    root = int(48 + row["temp_n"] * 24)
 
-def timbre():
-    return
+    # chord size: 2–5 notes
+    chordSize = int(np.interp(row["co2_n"], [0, 1], [2, 5]))
 
-def generatePiece():
-    return
+    pitches = [(root + scale[i % len(scale)]) for i in range(chordSize)] 
+
+    return pitches
+
+def rhythm(row, beatsPerBar=4):
+    noteCount = int(np.interp(row["extreme_n"], [0, 1], [1, 8]))
+
+    return np.linspace(0, beatsPerBar, noteCount, endpoint=False)
+
+def timbre(row):
+
+    # velocity 50–110
+    velocity = int(np.interp(1 - row["ice_n"], [0, 1], [50, 110]))
+
+    # instrument: pad → synth → brass
+    if row["ice_n"] > 0.66:
+        program = pretty_midi.instrument_name_to_program("Pad 2 (warm)")
+    elif row["ice_n"] > 0.33:
+        program = pretty_midi.instrument_name_to_program("Synth Strings 1")
+    else:
+        program = pretty_midi.instrument_name_to_program("Trumpet")
+
+    return velocity, program
+
+def generatePiece(dataFrame, yearsPerBar=1, outputFile="sonicWeather.mid"):
+    pm = pretty_midi.PrettyMIDI()
+
+    currentInstrument = None
+    currentProgram = None
+
+    timeCursor = 0.0
+
+    for _, row in dataFrame.iterrows():
+        pitches = harmony(row)
+        starts = rhythm(row)
+        velocity, program = timbre(row)
+
+        # change instrument only when needed
+        if currentProgram != program:
+            instrument = pretty_midi.Instrument(program=program)
+            pm.instruments.append(instrument)
+            currentInstrument = instrument
+            currentProgram = program
+
+        duration = 0.8  # beats
+
+        for start in starts:
+            for pitch in pitches:
+                note = pretty_midi.Note(
+                    velocity=velocity,
+                    pitch=pitch,
+                    start=timeCursor + start,
+                    end=timeCursor + start + duration,
+                )
+
+                currentInstrument.notes.append(note)
+
+        timeCursor += 4 * yearsPerBar
+
+    pm.write(outputFile)
+
+    print(f"MIDI written to {outputFile}")
