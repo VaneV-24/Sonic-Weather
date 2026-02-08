@@ -47,6 +47,22 @@ Annual extreme-event counts regulate rhythmic disruption while preserving a 4/4 
 ---
 ## How to Run
 ---
+### Make sure you are in python version 3.11 for pretty-midi and setuptools version 68.2.2 or else the code wont't compile.
+### To do this:
+```
+python3.11 -m venv venv
+source venv/bin/activate
+```
+or
+```
+python3.11 -m venv venv
+venv\Scripts\activate
+```
+```
+pip uninstall -y setuptools
+pip install setuptools==68.2.2
+```
+
 Create a virtual environment
 ```
 python -m venv venv 
