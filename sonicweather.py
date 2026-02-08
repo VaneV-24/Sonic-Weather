@@ -2,7 +2,7 @@ from src.functions import loadAllData, preProcessData, normalizeData
 
 
 def main():
-    print("🌍 Sonic Weather — Climate Sonification System")
+    print("Sonic Weather — Climate Change Sonification System")
 
     # -----------------------------
     # Load CSV data
