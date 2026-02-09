@@ -108,60 +108,58 @@ def harmony(row):
 
     return pitches
 
-def rhythm(row, beatsPerBar=4):
+def rhythm(row, minBeats=3, maxBeats=7):
     noteCount = int(np.interp(row["extreme_n"], [0, 1], [1, 8]))
-
-    return np.linspace(0, beatsPerBar, noteCount, endpoint=False)
+    beatsPerBar = np.interp(row["extreme_n"], [0, 1], [minBeats, maxBeats])
+    return np.linspace(0, beatsPerBar, noteCount, endpoint=False), beatsPerBar
 
 def timbre(row):
+    
+    instruments = []
 
-    # velocity 50–110
-    velocity = int(np.interp(1 - row["ice_n"], [0, 1], [50, 110]))
+    # Map ice_n to velocities
+    vel1 = int(np.interp(1 - row["ice_n"], [0, 1], [50, 110]))
+    vel2 = int(np.interp(1 - row["ice_n"], [0, 1], [40, 90]))
+    vel3 = int(np.interp(1 - row["ice_n"], [0, 1], [60, 100]))
 
-    # instrument: pad → synth → brass
+    # Choose instruments based on ice_n
     if row["ice_n"] > 0.66:
-        program = pretty_midi.instrument_name_to_program("Pad 2 (warm)")
+        instruments.append((vel1, pretty_midi.instrument_name_to_program("Pad 2 (warm)")))
+        instruments.append((vel2, pretty_midi.instrument_name_to_program("Synth Strings 1")))
     elif row["ice_n"] > 0.33:
-        program = pretty_midi.instrument_name_to_program("Synth Strings 1")
+        instruments.append((vel1, pretty_midi.instrument_name_to_program("Synth Strings 1")))
+        instruments.append((vel3, pretty_midi.instrument_name_to_program("Clarinet")))
     else:
-        program = pretty_midi.instrument_name_to_program("Trumpet")
+        instruments.append((vel1, pretty_midi.instrument_name_to_program("Clarinet")))
+        instruments.append((vel2, pretty_midi.instrument_name_to_program("Pad 2 (warm)")))
 
-    return velocity, program
+    return instruments
 
 def generatePiece(dataFrame, yearsPerBar=1, outputFile="sonicWeather.mid"):
     pm = pretty_midi.PrettyMIDI()
-
-    currentInstrument = None
-    currentProgram = None
-
+    
     timeCursor = 0.0
 
     for _, row in dataFrame.iterrows():
         pitches = harmony(row)
-        starts = rhythm(row)
-        velocity, program = timbre(row)
-
-        # change instrument only when needed
-        if currentProgram != program:
+        starts, beatsPerBar = rhythm(row)
+        for velocity, program in timbre(row):
             instrument = pretty_midi.Instrument(program=program)
             pm.instruments.append(instrument)
-            currentInstrument = instrument
-            currentProgram = program
 
-        duration = 0.8  # beats
+            duration = 0.8 #beats
 
-        for start in starts:
-            for pitch in pitches:
-                note = pretty_midi.Note(
-                    velocity=velocity,
-                    pitch=pitch,
-                    start=timeCursor + start,
-                    end=timeCursor + start + duration,
-                )
+            for start in starts:
+                for pitch in pitches:
+                    note = pretty_midi.Note(
+                        velocity=velocity,
+                        pitch=pitch,
+                        start=timeCursor + start,
+                        end=timeCursor + start + duration,
+                    )
+                    instrument.notes.append(note)
 
-                currentInstrument.notes.append(note)
-
-        timeCursor += 4 * yearsPerBar
+                timeCursor += beatsPerBar * yearsPerBar
 
     pm.write(outputFile)
 
