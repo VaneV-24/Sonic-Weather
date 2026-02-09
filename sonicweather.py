@@ -9,21 +9,18 @@ def main():
     # -----------------------------
     print("Loading climate data...")
     df = loadAllData(dataDir="data")
-    print(df)
 
     # -----------------------------
     # Preprocess (smoothing, filling)
     # -----------------------------
     print("Preprocessing data...")
     df = preProcessData(df)
-    print(df)
 
     # -----------------------------
     # Normalize to [0,1]
     # -----------------------------
     print("Normalizing climate variables...")
     df = normalizeData(df)
-    print(df)
 
     # -----------------------------
     # Generate music
