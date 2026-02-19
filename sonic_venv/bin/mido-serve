@@ -1,0 +1,8 @@
+#!/bin/sh
+'''exec' "/Users/VV/WPI/2025-2026/C26/HU 3910 - Creating Algorithmic Music/Weather-to-Music Sonification/sonic_venv/bin/python3.11" "$0" "$@"
+' '''
+import sys
+from mido.scripts.mido_serve import main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(main())
