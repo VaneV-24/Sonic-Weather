@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
-import pretty_midi
-import matplotlib.pyplot as plt
+from music21 import stream, note, scale, tempo, instrument, meter
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -16,29 +15,25 @@ def standardizeColums(file, yearCol, valCol, newValName):
 def loadAllData(dataDir):
     temp = pd.read_csv(dataDir + "/" + "temperature.csv")
     co2 = pd.read_csv(dataDir + "/" + "co2.csv")
-    ice = pd.read_csv(dataDir + "/" + "nh_sea_ice_extent_annual.csv")
     extreme = pd.read_csv(dataDir + "/" + "extreme_events.csv")
 
-    tempStand = standardizeColums(temp, "Year", "Anomaly", "temp_anomaly")
-    co2Stand = standardizeColums(co2, "Year", "CO2_Mean", "co2_ppm")
-    iceStand = standardizeColums(ice, "Year", "Ice_Extent", "ice_extent")
-    extremeStand = standardizeColums(extreme, "Year", "Extremes_Index", "extreme_count")
+    tempStand = standardizeColums(temp, "Year", "Anomaly", "tempAnomaly")
+    co2Stand = standardizeColums(co2, "Year", "CO2_Mean", "co2ppm")
+    extremeStand = standardizeColums(extreme, "Year", "Extremes_Index", "extremeCount")
 
-    dataFrame = tempStand.merge(co2Stand, on="year", how="outer")
-    dataFrame = dataFrame.merge(iceStand, on="year", how="outer")
-    dataFrame = dataFrame.merge(extremeStand, on="year", how="outer")
+    dataFrame = tempStand.merge(co2Stand, on="year", how="inner")
+    dataFrame = dataFrame.merge(extremeStand, on="year", how="inner")
 
     return dataFrame.sort_values("year").reset_index(drop=True)
 
-def preProcessData(dataFrame, smoothingWindow=5, clipQuantiles=(0.01, 0.99)):
+def preProcessData(dataFrame, smoothingWindow=3, clipQuantiles=(0.01, 0.99)):
     dataFrame = dataFrame.copy()
     dataFrame = dataFrame.sort_values("year").reset_index(drop=True)
 
     numericCols = [
-        "temp_anomaly",
-        "co2_ppm",
-        "ice_extent",
-        "extreme_count",
+        "tempAnomaly",
+        "co2ppm",
+        "extremeCount",
     ]
 
     dataFrame[numericCols] = dataFrame[numericCols].interpolate(
@@ -67,351 +62,244 @@ def preProcessData(dataFrame, smoothingWindow=5, clipQuantiles=(0.01, 0.99)):
     return dataFrame.reset_index(drop=True)
 
 def normalizeData(dataFrame, cutoffQuantiles=(0.005, 0.995)):
-    dataFrame = dataFrame.copy()
+    df = dataFrame.copy()
 
     climateCols = {
-        "temp_anomaly": "temp_n",
-        "co2_ppm": "co2_n",
-        "ice_extent": "ice_n",
-        "extreme_count": "extreme_n",
+        "tempAnomaly": "tempN",
+        "co2ppm": "co2N",
+        "extremeCount": "extremeN",
     }
 
     for rawCol, normCol in climateCols.items():
 
-        lo = dataFrame[rawCol].quantile(cutoffQuantiles[0])
-        hi = dataFrame[rawCol].quantile(cutoffQuantiles[1])
+        lo = df[rawCol].quantile(cutoffQuantiles[0])
+        hi = df[rawCol].quantile(cutoffQuantiles[1])
 
-        clipped = dataFrame[rawCol].clip(lo, hi)
+        # Clip first
+        clipped = df[rawCol].clip(lo, hi)
 
-        # min–max scale
-        norm = (clipped - lo) / (hi - lo)
+        denom = (hi - lo)
 
-        dataFrame[normCol] = norm
-
-    # Invert ice so *less* ice = higher tension
-    dataFrame["ice_n"] = 1.0 - dataFrame["ice_n"]
-
-    return dataFrame
-
-def harmony(row):
-    # Two scale types: major pentatonic (calm) vs minor pentatonic (tense)
-    baseScales = [
-        [0, 2, 4, 7, 9],      # Major pentatonic
-        [0, 3, 5, 7, 10]      # Minor pentatonic
-    ]
-    scale = baseScales[0] if row["temp_n"] < 0.5 else baseScales[1]
-    
-    # Root pitch: constrained to 48-72 (12 semitone span max)
-    root = int(48 + row["temp_n"] * 12)  # Changed from 24 to 12 semitones
-    
-    # Chord size: 2-8 voices based on CO2
-    chordSize = int(np.interp(row["co2_n"], [0, 1], [2, 8]))
-    
-    # Cluster probability: up to 60% based on CO2
-    clusterProb = min(0.6, row["co2_n"] * 0.6)
-    
-    # Generate pitches across 3 octaves, constrained to MIDI 48-84
-    pitches = []
-    for octave in range(3):
-        for degree in scale:
-            pitch = root + degree + (octave * 12)
-            if 48 <= pitch <= 84:
-                pitches.append(pitch)
-    
-    # Build chord with potential clusters
-    chord = []
-    for i in range(chordSize):
-        if np.random.random() < clusterProb and len(pitches) > 1:
-            # Cluster: pick adjacent semitones
-            base_idx = np.random.randint(0, len(pitches))
-            chord.append(pitches[base_idx])
-            if base_idx + 1 < len(pitches):
-                chord.append(pitches[base_idx] + 1)  # Semitone cluster
+        # Prevent division-by-zero
+        if denom == 0:
+            norm = 0.5  # neutral midpoint
         else:
-            # Normal: pick from scale
-            chord.append(pitches[np.random.randint(0, len(pitches))])
-    
-    return sorted(list(set(chord))), scale, root
+            norm = (clipped - lo) / denom
 
-def rhythm(row):
-    # Base: 4/4 time signature, 4 beats per bar
-    beatsPerBar = 4
-    
-    # Base note density: 4-12 notes per bar
-    baseNoteCount = int(np.interp(row["extreme_n"], [0, 1], [4, 12]))
-    
-    # Extreme events create rhythmic disruptions
-    hasGlitch = row["extreme_n"] > 0.7 and np.random.random() < row["extreme_n"]
-    hasMetricShift = row["extreme_n"] > 0.5 and np.random.random() < (row["extreme_n"] - 0.5)
-    
-    if hasMetricShift:
-        # Occasional metric shifts - stick to valid time signatures
-        beatsPerBar = np.random.choice([3, 5, 6, 7])  # All valid numerators
-    
-    # Generate base rhythm
-    starts = np.linspace(0, beatsPerBar, baseNoteCount, endpoint=False)
-    
-    # Add glitch bursts (rapid note clusters)
-    if hasGlitch:
-        glitchPoint = np.random.uniform(0, beatsPerBar)
-        glitchNotes = np.random.randint(3, 8)
-        glitchDuration = 0.5  # Half beat of glitch
-        glitchStarts = np.linspace(glitchPoint, glitchPoint + glitchDuration, glitchNotes)
-        starts = np.concatenate([starts, glitchStarts])
-        starts = np.sort(starts)
-    
-    return starts, beatsPerBar, hasGlitch
+        # Hard clamp to [0, 1]
+        norm = norm.clip(0.0, 1.0)
 
-def timbre(row):
-    # Base velocities
-    vel1 = int(np.interp(row["ice_n"], [0, 1], [50, 110]))
-    vel2 = int(np.interp(row["ice_n"], [0, 1], [40, 90]))
-    vel3 = int(np.interp(row["ice_n"], [0, 1], [60, 100]))
-    
-    # Timbral degradation parameters (for future audio synthesis)
-    filterCutoff = np.interp(row["ice_n"], [0, 1], [12000, 1500])  # Hz
-    noiseMix = min(0.4, row["ice_n"] * 0.4)  # Max 40%
-    distortion = row["ice_n"] * 0.3  # Moderate distortion
-    
-    # Choose instruments - darker sounds as ice decreases (higher ice_n)
-    if row["ice_n"] < 0.33:
-        # Low ice_n (high ice extent) - bright
-        instruments = [
-            (vel1, pretty_midi.instrument_name_to_program("Pad 2 (warm)")),
-            (vel2, pretty_midi.instrument_name_to_program("Choir Aahs")),
-            (vel3, pretty_midi.instrument_name_to_program("Flute"))
-        ]
-    elif row["ice_n"] < 0.66:
-        # Medium ice_n - mixed
-        instruments = [
-            (vel1, pretty_midi.instrument_name_to_program("String Ensemble 1")),
-            (vel2, pretty_midi.instrument_name_to_program("Clarinet")),
-            (vel3, pretty_midi.instrument_name_to_program("Pad 2 (warm)"))
-        ]
-    else:
-        # High ice_n (low ice extent) - dark
-        instruments = [
-            (vel1, pretty_midi.instrument_name_to_program("Contrabass")),
-            (vel2, pretty_midi.instrument_name_to_program("Acoustic Bass")),
-            (vel3, pretty_midi.instrument_name_to_program("Synth Strings 1"))
-        ]
-    
-    return instruments, filterCutoff, noiseMix, distortion
+        # Replace any possible NaN safely
+        df[normCol] = norm.fillna(0.5)
 
-def subsampleData(dataFrame, targetBars=75):
-    if len(dataFrame) <= targetBars:
-        return dataFrame
-    
-    # Use uniform sampling to preserve temporal distribution
-    indices = np.linspace(0, len(dataFrame) - 1, targetBars, dtype=int)
-    subsampled = dataFrame.iloc[indices].copy().reset_index(drop=True)
-    
-    print(f"Subsampled {len(dataFrame)} years down to {len(subsampled)} bars")
-    return subsampled
+    return df
 
+def generatePiece(df, basePitch=60, melodicRange=3, tempoBPM=100):
+    """
+    df: preprocessed + normalized DataFrame with columns:
+        - tempN (0..1)
+        - co2N (0..1)
+        - extremeN (0..1)
+    basePitch: MIDI pitch for the lowest note
+    melodicRange: how many semitones melody spans
+    """
+    # Clarinet playable range
+    CLARINET_MIN = 50
+    CLARINET_MAX = 96
 
-# Define instrument range mapping
-def get_instrument_range(program):
-    name = pretty_midi.program_to_instrument_name(program).lower()
-    
-    # Bass instruments
-    if any(x in name for x in ['contrabass', 'bass', 'tuba']):
-        return (28, 60)  # E1 to C4
-    # Low-mid instruments
-    elif any(x in name for x in ['cello', 'bassoon', 'trombone']):
-        return (36, 72)  # C2 to C5
-    # Mid instruments
-    elif any(x in name for x in ['viola', 'horn', 'clarinet', 'pad', 'string']):
-        return (48, 76)  # C3 to E5
-    # High instruments
-    elif any(x in name for x in ['flute', 'violin', 'piccolo', 'voice', 'oohs']):
-        return (60, 84)  # C4 to C6
-    # Synth (wide range)
-    elif 'synth' in name:
-        return (36, 84)  # C2 to C6
-    # Default mid-range
-    else:
-        return (48, 76)
+    score = stream.Score()
+    clarinetPart = stream.Part()
+    clarinetPart.id = "Clarinet"
+    clarinetPart.append(instrument.Clarinet())
+    score.append(tempo.MetronomeMark(number=tempoBPM))
 
-def generatePiece(dataFrame, yearsPerBar=1, tempo=120, targetDuration=300, outputFile="sonicWeather.mid"):
-    # Calculate how many bars we need for target duration
-    secondsPerBar = (4 * 60) / tempo  # Assuming avg 4 beats per bar
-    targetBars = int(targetDuration / secondsPerBar)
-    
-    # Subsample if needed
-    if len(dataFrame) > targetBars:
-        dataFrame = subsampleData(dataFrame, targetBars)
-    
-    print(f"Generating {len(dataFrame)} bars at {tempo} BPM (target: {targetDuration/60:.1f} minutes)")
-    
-    pm = pretty_midi.PrettyMIDI(initial_tempo=tempo)
-    
-    timeCursor = 0.0
-    secondsPerBeat = 60.0 / tempo
-    
-    # Track current instrument programs and their corresponding pretty_midi instruments
-    current_programs = [None, None, None]
-    current_instruments = [None, None, None]
-    
-    for row_idx, row in dataFrame.iterrows():
-        chord, scale, root = harmony(row)
-        starts, beatsPerBar, hasGlitch = rhythm(row)
-        instrument_timbres, filterCutoff, noiseMix, distortion = timbre(row)
-        
-        # Add time signature change - ensure valid values
-        try:
-            ts = pretty_midi.TimeSignature(beatsPerBar, 4, timeCursor)
-            pm.time_signature_changes.append(ts)
-        except:
-            # Fallback to 4/4 if the time signature is invalid
-            ts = pretty_midi.TimeSignature(4, 4, timeCursor)
-            pm.time_signature_changes.append(ts)
-            beatsPerBar = 4
-        
-        # Determine instrument ranges based on current programs
-        instrument_ranges = []
-        for idx, (velocity_base, program) in enumerate(instrument_timbres):
-            instrument_ranges.append(get_instrument_range(program))
-        
-        # Check if we need to create new instruments due to program changes
-        for idx, (velocity_base, program) in enumerate(instrument_timbres):
-            if current_programs[idx] != program:
-                # Create new instrument track with this program
-                new_instrument = pretty_midi.Instrument(program=program)
-                pm.instruments.append(new_instrument)
-                current_instruments[idx] = new_instrument
-                current_programs[idx] = program
-        
-        # Rhythmic density per instrument
-        rhythm_divisions = [
-            starts[::3] if len(starts) > 3 else starts[::2],  # Sparse - bass
-            starts,                                             # Full - melody
-            starts[::2] if len(starts) > 2 else starts         # Medium - counter
-        ]
-        
-        melody_pitches = []
-        
-        for idx in range(3):
-            instrument = current_instruments[idx]
-            if instrument is None:
-                continue
-                
-            min_pitch, max_pitch = instrument_ranges[idx]
-            velocity_base, program = instrument_timbres[idx]
-            
-            # Filter chord to instrument range
-            valid_pitches = [p for p in chord if min_pitch <= p <= max_pitch]
-            if not valid_pitches:
-                # If no valid pitches in range, transpose chord into range
-                transposed_chord = []
-                for p in chord:
-                    # Transpose up or down by octaves to fit
-                    while p < min_pitch:
-                        p += 12
-                    while p > max_pitch:
-                        p -= 12
-                    if min_pitch <= p <= max_pitch:
-                        transposed_chord.append(p)
-                valid_pitches = sorted(list(set(transposed_chord)))
+    prevPitch = None
+    invertNextMotif = False
 
-                # Fallback: if still no valid pitches, create scale in range
-                if not valid_pitches:
-                    valid_pitches = list(range(min_pitch, min(max_pitch, min_pitch + 24), 2))
-            
-            instrument_starts = rhythm_divisions[idx]
-            if len(instrument_starts) == 0:
-                continue
-            
-            last_pitch_idx = idx % len(valid_pitches)
-            
-            for start_idx, start in enumerate(instrument_starts):
-                # Instrument-specific pitch behavior
-                if idx == 0:
-                    # Bass: root and fifth emphasis
-                    if start_idx % 2 == 0:
-                        target = root
-                    else:
-                        target = root + 7
-                    
-                    # Transpose target into range
-                    while target < min_pitch:
-                        target += 12
-                    while target > max_pitch:
-                        target -= 12
-                    
-                    pitch = min(valid_pitches, key=lambda p: abs(p - target))
-                    
-                elif idx == 1:
-                    # Melody: more freedom
-                    movement = (row_idx * 3 + start_idx * 7) % len(valid_pitches)
-                    pitch = valid_pitches[movement]
-                    melody_pitches.append((start, pitch))
-                    
+    # Phrase engine state (Movement 1 only)
+    phraseLength = 4
+    phraseCounter = 0
+    phraseDirection = 1
+    phraseTarget = None
+
+    # Define 3 movements
+    movements = [
+        (1959, 1978, [1.0]),             # quarter notes only
+        (1979, 1999, [1.0, 0.5]),        # quarter & eighth
+        (2000, 2024, [0.5, 0.25])        # eighth, sixteenth
+    ]
+
+    scaleLow = scale.MajorScale('C')
+    scaleHigh = scale.MajorScale('G')
+    tempThreshold = 0.6  # to choose high/low scale
+
+    for idx, row in df.iterrows():
+        year = row["year"]
+        temp = row["tempN"]
+        co2 = row["co2N"]
+        extreme = row["extremeN"]
+
+        # Determine movement for rhythm options
+        for startY, endY, rhythmOptions in movements:
+            if startY <= year <= endY:
+                break
+
+        # --- Step 1: choose scale based on temperature ---
+        currentScale = scaleHigh if temp > tempThreshold else scaleLow
+
+        # Step 2: get scale pitches and shift into clarinet range
+        scalePitches = [p.midi for p in currentScale.getPitches()]
+        scalePitches = [p for p in scalePitches if CLARINET_MIN <= p <= CLARINET_MAX]
+
+        # If too low, shift up in octaves
+        while scalePitches and min(scalePitches) < CLARINET_MIN:
+            scalePitches = [p + 12 for p in scalePitches if p + 12 <= CLARINET_MAX]
+        # If too high, shift down
+        while scalePitches and max(scalePitches) > CLARINET_MAX:
+            scalePitches = [p - 12 for p in scalePitches if p - 12 >= CLARINET_MIN]
+
+        if not scalePitches:
+            scalePitches = [basePitch]  # fallback
+
+        # Step 3: pick base note safely
+        pitchNote = np.random.choice(scalePitches)
+
+        # Apply small temperature influence as relative step
+        tempStep = int(temp * melodicRange)  # ±3 semitones
+        pitchNote += np.clip(tempStep, -melodicRange, melodicRange)
+
+        # --- CO2 REGISTER DRIFT ---
+        registerShift = int(co2 * 6)
+        pitchNote += registerShift
+
+        # Step 4: motif evolution (interval limitation)
+        if prevPitch is not None:
+            diff = pitchNote - prevPitch
+            maxUp = 5
+            maxDown = -3
+            if diff > maxUp:
+                pitchNote = prevPitch + maxUp
+            elif diff < maxDown:
+                pitchNote = prevPitch + maxDown
+
+            # optional motif inversion
+            if invertNextMotif:
+                pitchNote = prevPitch - (pitchNote - prevPitch)
+
+        # Step 5: extreme events influence on rhythm and velocity
+        baseVelocity = 50
+        velocity = int(np.clip(baseVelocity + extreme * 60, 0, 127))
+
+        # Ensure pitch within clarinet range
+        pitchNote = int(np.clip(pitchNote, CLARINET_MIN, CLARINET_MAX))
+
+        # Step 6: create bar for this year
+        bar = stream.Measure(number=year)
+        bar.timeSignature = meter.TimeSignature('4/4')
+        remainingLength = 4.0  # 1 bar = 4 quarter notes
+
+        # Starting pitch for this bar
+        currentPitch = pitchNote
+
+         # Determine movement index
+        if 1959 <= year <= 1975:
+            movement = 1
+        elif 1976 <= year <= 1995:
+            movement = 2
+        else:
+            movement = 3
+
+        # --- HYBRID PHRASE ENGINE (Movement 1 only) ---
+        if movement == 1:
+            if phraseCounter == 0:
+                phraseDirection = np.random.choice([-1, 1])
+                phraseTarget = currentPitch + phraseDirection * 5
+            phraseCounter += 1
+            if phraseCounter >= phraseLength:
+                phraseCounter = 0
+
+        while remainingLength > 0:
+            # Choose a rhythm that fits remaining space
+            possibleRhythms = [r for r in rhythmOptions if r <= remainingLength]
+            qLen = remainingLength if not possibleRhythms else np.random.choice(possibleRhythms)
+
+            # Limit melodic motion for coherence
+            if movement == 1:
+                maxStep = 2
+                accidentalChance = 0.0
+            elif movement == 2:
+                maxStep = 5
+                accidentalChance = 0.2
+            else:
+                if year < 2010:
+                    rhythmOptions = [0.5]  # just eighths
                 else:
-                    # Counter-melody: harmonize with melody
-                    if melody_pitches:
-                        closest_melody = min(melody_pitches, key=lambda x: abs(x[0] - start))
-                        melody_pitch = closest_melody[1]
-                        # Harmonize in thirds
-                        target = melody_pitch - 4  # Major third below
-                        
-                        # Ensure target is in range
-                        while target < min_pitch:
-                            target += 12
-                        while target > max_pitch:
-                            target -= 12
-                        
-                        pitch = min(valid_pitches, key=lambda p: abs(p - target))
-                    else:
-                        movement = (start_idx * 3) % len(valid_pitches)
-                        pitch = valid_pitches[movement]
+                    rhythmOptions = [0.5, 0.25]  # intensify near climax
+                maxStep = 3
+                accidentalChance = 0.15  # chaotic but controlled
+                if (np.random.rand() < accidentalChance and 
+                    abs(nextPitch - currentPitch) <= 2):
 
-                # Final safety check - clamp to range
-                pitch = max(min_pitch, min(max_pitch, pitch))
-                
-                # Velocity with expression
-                velocity = velocity_base
-                if hasGlitch and start_idx % 2 == 0:
-                    velocity = min(127, int(velocity * 1.3))  # Accent glitch notes
-                velocity_var = ((row_idx + start_idx) * 11) % 20 - 10
-                velocity = max(30, min(127, velocity + velocity_var))
-                
-                # Duration calculation
-                if start_idx < len(starts) - 1:
-                    next_start_idx = np.where(starts > start)[0]
-                    if len(next_start_idx) > 0:
-                        gap = starts[next_start_idx[0]] - start
-                    else:
-                        gap = beatsPerBar - start
-                else:
-                    gap = beatsPerBar - start
-                
-                # Articulation per instrument
-                if idx == 0:
-                    note_duration = gap * 0.95  # Sustained bass
-                elif idx == 1:
-                    # Varied melody
-                    duration_types = [0.4, 0.6, 0.8, 0.95]
-                    note_duration = gap * duration_types[start_idx % 4]
-                else:
-                    note_duration = gap * 0.7  # Medium
-                
-                # Glitch notes are very short
-                if hasGlitch and gap < 0.2:
-                    note_duration = gap * 0.5
-                
-                note = pretty_midi.Note(
-                    velocity=velocity,
-                    pitch=pitch,
-                    start=timeCursor + start * secondsPerBeat,
-                    end=timeCursor + (start + note_duration) * secondsPerBeat,
-                )
-                instrument.notes.append(note)
-        
-        timeCursor += beatsPerBar * yearsPerBar * secondsPerBeat
-    
-    pm.write(outputFile)
-    actualDuration = timeCursor
-    print(f"MIDI written to {outputFile}")
-    print(f"Actual duration: {actualDuration / 60:.2f} minutes ({actualDuration:.1f} seconds)")
-    print(f"Created {len(pm.instruments)} instrument tracks")
+                    chromaticShift = 1 if nextPitch > currentPitch else -1
+                    candidate = currentPitch + chromaticShift
+
+                    if CLARINET_MIN <= candidate <= CLARINET_MAX:
+                        nextPitch = candidate
+
+            # Stepwise movement within scale
+            stepOptions = [p for p in scalePitches 
+               if abs(p - currentPitch) <= maxStep 
+               and p != currentPitch]
+
+            if movement == 1 and phraseTarget is not None:
+                stepOptions = [p for p in stepOptions
+                               if (phraseTarget - currentPitch) * (p - currentPitch) >= 0]
+
+                # Bar 4 gentle relaxation toward tonic
+                if phraseCounter == 0:
+                    stepOptions = sorted(scalePitches,
+                                         key=lambda x: abs(x - basePitch))[:3]
+
+            # If removing repetition leaves nothing, allow motion in one direction
+            if not stepOptions:
+                stepOptions = [p for p in scalePitches if p != currentPitch]
+
+            # Absolute fallback
+            if not stepOptions:
+                stepOptions = scalePitches
+
+            nextPitch = int(np.random.choice(stepOptions))
+
+            # --- Add controlled chromaticism ---
+            if np.random.rand() < accidentalChance:
+                # Only allow neighbor tones (±1 semitone)
+                chromaticShift = np.random.choice([-1, 1])
+                candidate = nextPitch + chromaticShift
+
+                # Keep inside clarinet range
+                if CLARINET_MIN <= candidate <= CLARINET_MAX:
+                    nextPitch = candidate
+
+            # Final safety clip
+            nextPitch = int(np.clip(nextPitch, CLARINET_MIN, CLARINET_MAX))
+
+            # Create note
+            n = note.Note(midi=nextPitch)
+            n.quarterLength = qLen
+            n.volume.velocity = velocity
+
+            bar.append(n)
+
+            # Update for next note
+            currentPitch = nextPitch
+            remainingLength -= qLen
+
+        clarinetPart.append(bar)
+        prevPitch = pitchNote
+
+        # Motif inversion every 5 bars
+        if (idx + 1) % 5 == 0:
+            invertNextMotif = np.random.rand() < 0.5
+
+    score.append(clarinetPart)
+    return score

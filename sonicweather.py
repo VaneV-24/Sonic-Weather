@@ -27,6 +27,8 @@ def main():
     # -----------------------------
     print("Generating musical score...")
     score = generatePiece(df)
+    score.write('midi', fp='sonicWeather.mid')
+    print("MIDI written to sonicWeather.mid")
 
 if __name__ == "__main__":
     main()
