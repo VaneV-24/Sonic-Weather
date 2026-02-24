@@ -3,7 +3,7 @@ Sonic Weather
 ---
 ## Overview
 ---
-This project is an algorithmic composition system written in Python that generates a 5 minute musical work in which over a centutry of historic weather is compressed into sound. Annual climate indicators of global temperature, atmospheric CO2 concentration, and counts of extreme weather events are mapped to pitch, harmony, and rhythmic disruption. Each bar represents 1 year, allowing long-term trends to become audible as evolving musical form.
+This project is an algorithmic composition system written in Python that generates a 2 minute musical work in which over half a centutry of historic weather is compressed into sound. Annual climate indicators of global temperature, atmospheric CO2 concentration, and counts of extreme weather events are mapped to pitch, harmony, and rhythmic disruption. Each bar represents 1 year, allowing long-term trends to become audible as evolving musical form.
 
 ---
 ## Musical Question
@@ -18,16 +18,16 @@ The data sources used to create the composition are NOAA Climate at a Glance (an
 ---
 ## Time Mapping
 ---
-I chose to do 1 year as 1 bar with a base time signature of 4/4 and a tempo of about 60 BPM because I want to convey the changes the piece goes through clearly and have enough time to build into the intensity that will appear later on. Additionally, to make the contrast of the changing meter or subdivision based on extreme events be more apparent.
+I chose to do 1 year as 1 bar with a base time signature of 4/4 and a tempo of about 100 BPM because I want to convey the changes the piece goes through clearly and have enough time to build into the intensity that will appear later on.
 
 ---
 ## Musical Mapping
 ---
-As the temparature anomaly rises: the key center shifts upward, register increases over time and bright orchestration can be heard in later years.
+As the temperature anomaly changes: for higher temperatures the pitch is higher and for lower temperature the pitch is lower.
 
-As CO2 concentration increases: chord tones increase, cluster probability increases and more voices are added.
+As CO2 concentration changes: the octave changes, for low CO2 the register is low (warm, calm) and for high CO2 the register is high (bright, tense).
 
-As the number of extreme events changes, event spikes create rhythmic bursts, glitches, metric instability, and sudden modulations.
+As the number of extreme events changes: event spikes create rhythmic bursts, glitches, metric instability, and sudden modulations.
 
 ---
 ## Mapping Ranges
@@ -43,31 +43,18 @@ Annual extreme-event counts regulate rhythmic disruption while preserving a 4/4 
 ---
 ## How to Run
 ---
-### Make sure you are in python version 3.13 for mido since there are issues with mido and python version 3.14
-### To do this:
-```
-python3.11 -m venv venv
-source venv/bin/activate
-```
-or
-```
-python3.11 -m venv venv
-venv\Scripts\activate
-```
-```
-
 Create a virtual environment
 ```
-python -m venv venv 
+python -m venv sonic_env
 ```
 or 
 ```
-python3 -m venv venv
+python3 -m venv sonic_env
 ```
 Activate virtual environment
 ```
-source venv/bin/activate (on Mac)
-venv\Scripts\activate (on Windows)
+source sonic_env/bin/activate (on Mac)
+sonic_env\Scripts\activate (on Windows)
 ```
 
 Install required packages
