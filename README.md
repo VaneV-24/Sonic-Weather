@@ -45,16 +45,16 @@ Annual extreme-event counts regulate rhythmic disruption while preserving a 4/4 
 ---
 Create a virtual environment
 ```
-python -m venv sonic_env
+python -m venv sonic_venv
 ```
 or 
 ```
-python3 -m venv sonic_env
+python3 -m venv sonic_venv
 ```
 Activate virtual environment
 ```
-source sonic_env/bin/activate (on Mac)
-sonic_env\Scripts\activate (on Windows)
+source sonic_venv/bin/activate (on Mac)
+sonic_venv\Scripts\activate (on Windows)
 ```
 
 Install required packages
@@ -64,11 +64,11 @@ pip install -r requirements.txt
 
 Run Program
 ```
-python sonicweather.py 
+python soundingcc.py 
 ```
 or 
 ```
-python3 sonicweather.py
+python3 soundingcc.py
 ```
 ---
 ## Limitations
